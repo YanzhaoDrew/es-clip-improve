@@ -35,7 +35,7 @@ def parse_cmd_args():
     parser.add_argument('--n_population', type=int, default=256)
     parser.add_argument('--n_iterations', type=int, default=10000)
     parser.add_argument('--mp_batch_size', type=int, default=1)
-    parser.add_argument('--solver', type=str, default='pgpe', choices=['pgpe'])
+    parser.add_argument('--solver', type=str, default='pgpe', choices=['pgpe']) # maybe add more solvers
     parser.add_argument('--report_interval', type=int, default=50)
     parser.add_argument('--step_report_interval', type=int, default=50)
     parser.add_argument('--save_as_gif_interval', type=int, default=50)
@@ -98,6 +98,20 @@ def load_target(fn, resize):
 
 
 def fitness_fn(params, painter, target_arr, loss_type):
+    """Calculate Fitness
+
+    Args:
+        params (_type_): one solution
+        painter (_type_): _description_
+        target_arr (_type_): _description_
+        loss_type (_type_): 'l1'|'l2'
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: - fitness
+    """
     NUM_ROLLOUTS = 5
     losses = []
     for _ in range(NUM_ROLLOUTS):
@@ -123,15 +137,30 @@ def fitness_fn(params, painter, target_arr, loss_type):
     return -np.mean(losses)  # pgpe *maximizes*
 
 
-worker_assets = None
+worker_assets = None # a dict with init args
 
 
 def init_worker(painter, target_arr, loss_type):
+    """init worker_assets, pack as a dict
+
+    Args:
+        painter (_type_): _description_
+        target_arr (_type_): _description_
+        loss_type (_type_): _description_
+    """
     global worker_assets
     worker_assets = {'painter': painter, 'target_arr': target_arr, 'loss_type': loss_type}
 
 
 def fitness_fn_by_worker(params):
+    """fitness_fn used for multi-processing
+
+    Args:
+        params (_type_): one solution
+
+    Returns:
+        _type_: fitness calculated by fitness_fn
+    """
     global worker_assets
     painter = worker_assets['painter']
     target_arr = worker_assets['target_arr']
@@ -141,12 +170,20 @@ def fitness_fn_by_worker(params):
 
 
 def batch_fitness_fn_by_workers(params_batch):
+    """batch fitness_fn for multi-processing
+
+    Args:
+        params_batch (tuple): a batch of solutions
+
+    Returns:
+        list: fitness of solutions
+    """
     return [fitness_fn_by_worker(params) for params in params_batch]
 
 
 def infer_height_and_width(hint_height, hint_width, fn):
     fn_width, fn_height = Image.open(fn).size
-    if hint_height <= 0:
+    if hint_height <= 0:    # hint_height is invalid
         if hint_width <= 0:
             inferred_height, inferred_width = fn_height, fn_width  # use target image's size
         else:  # hint_width is valid
@@ -173,12 +210,13 @@ def training_loop(args):
         w=width,
         n_triangle=args.n_triangle,
         alpha_scale=args.alpha_scale,
-        coordinate_scale=args.coordinate_scale,
+        coordinate_scale=args.coordinate_scale, # Default to 1, to scale the coordinate
     )
 
     target_arr = load_target(args.target_fn, (height, width))
     save_as_png(os.path.join(args.working_dir, 'target'), arr2img(target_arr))
 
+    # record log
     hooks = [
         (args.step_report_interval, PrintStepHook()),
         (args.report_interval, PrintCostHook()),
@@ -195,6 +233,7 @@ def training_loop(args):
         (args.report_interval, ShowImageHook(render_fn=lambda params: painter.render(params, background='white'))),
     ]
 
+    # Maybe here to add more solvers
     allowed_solver = ['pgpe']
     if args.solver not in allowed_solver:
         raise ValueError(f'Only following solver(s) is/are supported: {allowed_solver}')
@@ -214,20 +253,24 @@ def training_loop(args):
     best_params_fn = get_best_params_fn(args.solver)
     loss_type = args.loss_type
     # fitnesses_fn is OK to be inefficient as it's for hook's use only.
+    # To calc fitnesses with multi solutions
     fitnesses_fn = lambda fitness_fn, solutions: [fitness_fn(_, painter, target_arr, loss_type) for _ in solutions]
     n_iterations = args.n_iterations
     mp_batch_size = args.mp_batch_size
     proc_pool = mp.Pool(processes=mp.cpu_count(), initializer=init_worker, initargs=(painter, target_arr, loss_type))
 
     for i in range(1, 1 + n_iterations):
-        solutions = solver.ask()
+        solutions = solver.ask() # get solutions
 
+        # batch solutions to calc fitnesses in parallel
         batch_it = (solutions[start:start + mp_batch_size] for start in range(0, len(solutions), mp_batch_size))
         batch_output = proc_pool.imap(func=batch_fitness_fn_by_workers, iterable=batch_it)
         fitnesses = [item for batch in batch_output for item in batch]
 
+        # tell solver the fitnesses
         tell_fn(solver, solutions, fitnesses)
 
+        # call hooks, record logs
         for hook in hooks:
             trigger_itervel, hook_fn_or_obj = hook
             if i % trigger_itervel == 0:
