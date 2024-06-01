@@ -2,8 +2,8 @@
 
 import os
 
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '20'   # set the number of threads used by OpenBLAS
+os.environ['OMP_NUM_THREADS'] = '20'        # set the number of threads used by OpenMP
 
 import argparse
 import cProfile
@@ -46,7 +46,6 @@ def parse_cmd_args():
 
 def parse_args(cmd_args):
     args = EasyDict()
-
     args.out_dir = cmd_args.out_dir
     args.height = cmd_args.height
     args.width = cmd_args.width
@@ -67,8 +66,13 @@ def parse_args(cmd_args):
 
     return args
 
-
+# Pre-training - create working directory and dump args
 def pre_training_loop(args):
+    """Pre-training - create working directory and dump args
+
+    Args:
+        args (_type_): _description_
+    """
     out_dir = args.out_dir
     os.makedirs(out_dir, exist_ok=True)
     assert os.path.isdir(out_dir)
@@ -138,7 +142,6 @@ def fitness_fn(params, painter, target_arr, loss_type):
 
 
 worker_assets = None # a dict with init args
-
 
 def init_worker(painter, target_arr, loss_type):
     """init worker_assets, pack as a dict
@@ -288,7 +291,7 @@ def training_loop(args):
 def main():
     cmd_args = parse_cmd_args()
     args = parse_args(cmd_args)
-    pre_training_loop(args)
+    pre_training_loop(args) # create working directory and dump args
 
     if args.profile:
         cProfile.runctx('training_loop(args)', globals(), locals(), sort='cumulative')
