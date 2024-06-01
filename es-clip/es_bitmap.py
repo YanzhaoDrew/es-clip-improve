@@ -6,20 +6,24 @@ os.environ['OPENBLAS_NUM_THREADS'] = '20'   # set the number of threads used by 
 os.environ['OMP_NUM_THREADS'] = '20'        # set the number of threads used by OpenMP
 
 import argparse
-import cProfile
+# import cProfile
 import json
-import multiprocessing as mp
+# import multiprocessing as mp
+import torch
+if torch.cuda.is_available():
+    torch.device('cuda')
+mp = torch.multiprocessing.get_context('fork') # fork for preserving all variables in the main process
+    
 import os
 import re
 
 import numpy as np
-from PIL import Image
+# from PIL import Image
 from pgpelib import PGPE
 
-from utils import (img2arr, arr2img, rgba2rgb, save_as_png, EasyDict)
+from utils import (img2arr, arr2img, rgba2rgb, save_as_png, EasyDict, load_target, infer_height_and_width)
 from painter import TrianglesPainter
-from es import (get_tell_fn, get_best_params_fn, PrintStepHook, PrintCostHook, SaveCostHook, StoreImageHook, ShowImageHook)
-
+from hooks import (PrintStepHook, PrintCostHook, SaveCostHook, StoreImageHook, ShowImageHook)
 
 def parse_cmd_args():
     parser = argparse.ArgumentParser()
@@ -39,44 +43,19 @@ def parse_cmd_args():
     parser.add_argument('--report_interval', type=int, default=50)
     parser.add_argument('--step_report_interval', type=int, default=50)
     parser.add_argument('--save_as_gif_interval', type=int, default=50)
-    parser.add_argument('--profile', type=bool, default=False)
+    # parser.add_argument('--profile', type=bool, default=False)  # for proformance profiling
     cmd_args = parser.parse_args()
     return cmd_args
 
-
-def parse_args(cmd_args):
-    args = EasyDict()
-    args.out_dir = cmd_args.out_dir
-    args.height = cmd_args.height
-    args.width = cmd_args.width
-    args.target_fn = cmd_args.target_fn
-    args.n_triangle = cmd_args.n_triangle
-    args.loss_type = cmd_args.loss_type
-    args.alpha_scale = cmd_args.alpha_scale
-    args.coordinate_scale = cmd_args.coordinate_scale
-    args.fps = cmd_args.fps
-    args.n_population = cmd_args.n_population
-    args.n_iterations = cmd_args.n_iterations
-    args.mp_batch_size = cmd_args.mp_batch_size
-    args.solver = cmd_args.solver
-    args.report_interval = cmd_args.report_interval
-    args.step_report_interval = cmd_args.step_report_interval
-    args.save_as_gif_interval = cmd_args.save_as_gif_interval
-    args.profile = cmd_args.profile
-
-    return args
-
-# Pre-training - create working directory and dump args
-def pre_training_loop(args):
-    """Pre-training - create working directory and dump args
-
-    Args:
-        args (_type_): _description_
+def init_training():
+    """Initialize training - create working directory, dump args
     """
-    out_dir = args.out_dir
-    os.makedirs(out_dir, exist_ok=True)
-    assert os.path.isdir(out_dir)
-    prev_ids = [re.match(r'^\d+', fn) for fn in os.listdir(out_dir)]
+    
+    # Create working directory
+    global args
+    os.makedirs(args.out_dir, exist_ok=True)
+    assert os.path.isdir(args.out_dir)
+    prev_ids = [re.match(r'^\d+', fn) for fn in os.listdir(args.out_dir)]
     new_id = 1 + max([-1] + [int(id_.group()) if id_ else -1 for id_ in prev_ids])
     desc = f'{os.path.splitext(os.path.basename(args.target_fn))[0]}-' \
            f'{args.n_triangle}-triangles-' \
@@ -84,39 +63,62 @@ def pre_training_loop(args):
            f'{args.n_population}-population-' \
            f'{args.solver}-solver-' \
            f'{args.loss_type}-loss'
-    args.working_dir = os.path.join(out_dir, f'{new_id:04d}-{desc}')
+    args.working_dir = os.path.join(args.out_dir, f'{new_id:04d}-{desc}')
 
     os.makedirs(args.working_dir)
     args_dump_fn = os.path.join(args.working_dir, 'args.json')
     with open(args_dump_fn, 'w') as f:
-        json.dump(args, f, indent=4)
+        json.dump(vars(args), f, indent=4) # vars() Namespace -> dict
 
+    # Infer height and width
+    height, width = infer_height_and_width(args.height, args.width, args.target_fn)
 
-def load_target(fn, resize):
-    img = Image.open(fn)
-    img = rgba2rgb(img)
-    h, w = resize
-    img = img.resize((w, h), Image.LANCZOS)
-    img_arr = img2arr(img)
-    return img_arr
+    # Load target image
+    global target_arr
+    target_arr = load_target(args.target_fn, (height, width))
+    save_as_png(os.path.join(args.working_dir, 'target'), arr2img(target_arr))
 
+    # Create painter
+    global painter
+    painter = TrianglesPainter(
+        h=height,
+        w=width,
+        n_triangle=args.n_triangle,
+        alpha_scale=args.alpha_scale,
+        coordinate_scale=args.coordinate_scale, # Default to 1, to scale the coordinate
+    )
+    
+    global loss_type
+    loss_type = args.loss_type
 
-def fitness_fn(params, painter, target_arr, loss_type):
+    # record log
+    global hooks
+    hooks = [
+        (args.step_report_interval, PrintStepHook()),
+        (args.report_interval, PrintCostHook()),
+        (args.report_interval, SaveCostHook(save_fp=os.path.join(args.working_dir, 'cost.txt'))),
+        (
+            args.report_interval,
+            StoreImageHook(
+                render_fn=lambda params: painter.render(params, background='white'),
+                save_fp=os.path.join(args.working_dir, 'animate-background=white'),
+                fps=args.fps,
+                save_interval=args.save_as_gif_interval,
+            ),
+        ),
+        (args.report_interval, ShowImageHook(render_fn=lambda params: painter.render(params, background='white'))),
+    ]
+
+def fitness_fn(params, NUM_ROLLOUTS = 5):
     """Calculate Fitness
 
     Args:
         params (_type_): one solution
-        painter (_type_): _description_
-        target_arr (_type_): _description_
-        loss_type (_type_): 'l1'|'l2'
-
-    Raises:
-        ValueError: _description_
+        NUM_ROLLOUTS (int, optional): Number of rollouts. Defaults to 5.
 
     Returns:
-        _type_: - fitness
+        float: minus fitness
     """
-    NUM_ROLLOUTS = 5
     losses = []
     for _ in range(NUM_ROLLOUTS):
         rendered_arr = painter.render(params)
@@ -140,165 +142,75 @@ def fitness_fn(params, painter, target_arr, loss_type):
 
     return -np.mean(losses)  # pgpe *maximizes*
 
-
-worker_assets = None # a dict with init args
-
-def init_worker(painter, target_arr, loss_type):
-    """init worker_assets, pack as a dict
-
-    Args:
-        painter (_type_): _description_
-        target_arr (_type_): _description_
-        loss_type (_type_): _description_
+def fitnesses_fn(solutions):
     """
-    global worker_assets
-    worker_assets = {'painter': painter, 'target_arr': target_arr, 'loss_type': loss_type}
-
-
-def fitness_fn_by_worker(params):
-    """fitness_fn used for multi-processing
+    Calculates the fitness values for a list of solutions.
 
     Args:
-        params (_type_): one solution
+        solutions (list): A list of solutions.
 
     Returns:
-        _type_: fitness calculated by fitness_fn
+        list: A list of fitness values corresponding to each solution.
     """
-    global worker_assets
-    painter = worker_assets['painter']
-    target_arr = worker_assets['target_arr']
-    loss_type = worker_assets['loss_type']
+    return list(map(fitness_fn, solutions))
 
-    return fitness_fn(params, painter, target_arr, loss_type)
-
-
-def batch_fitness_fn_by_workers(params_batch):
-    """batch fitness_fn for multi-processing
+def batching_fitnesses_fn(solutions):
+    """
+    Calculate the fitnesses of a list of solutions in batches using multiprocessing.
 
     Args:
-        params_batch (tuple): a batch of solutions
+        solutions (list): A list of solutions to calculate fitnesses for.
 
     Returns:
-        list: fitness of solutions
+        list: A list of fitness values corresponding to each solution.
     """
-    return [fitness_fn_by_worker(params) for params in params_batch]
+    proc_pool = mp.Pool(initargs=(painter,loss_type,target_arr)) # Process Pool
+    batches_in = (solutions[start:start + args.mp_batch_size] for start in range(0, len(solutions), args.mp_batch_size)) # split solutions into batches
+    batches_out = proc_pool.imap(func=fitnesses_fn, iterable=batches_in) # map fitness_fn to each batch
+    fitnesses = [item for batch in batches_out for item in batch]
+    
+    proc_pool.close();proc_pool.join(); # close and join the pool
+    return fitnesses
 
-
-def infer_height_and_width(hint_height, hint_width, fn):
-    fn_width, fn_height = Image.open(fn).size
-    if hint_height <= 0:    # hint_height is invalid
-        if hint_width <= 0:
-            inferred_height, inferred_width = fn_height, fn_width  # use target image's size
-        else:  # hint_width is valid
-            inferred_width = hint_width
-            inferred_height = hint_width * fn_height // fn_width
-    else:  # hint_height is valid
-        if hint_width <= 0:
-            inferred_height = hint_height
-            inferred_width = hint_height * fn_width // fn_height
-        else:  # hint_width is valid
-            inferred_height, inferred_width = hint_height, hint_width  # use hint size
-
-    print(f'Inferring height and width. '
-          f'Hint: {hint_height, hint_width}, File: {fn_width, fn_height}, Inferred: {inferred_height, inferred_width}')
-
-    return inferred_height, inferred_width
-
-
-def training_loop(args):
-    height, width = infer_height_and_width(args.height, args.width, args.target_fn)
-
-    painter = TrianglesPainter(
-        h=height,
-        w=width,
-        n_triangle=args.n_triangle,
-        alpha_scale=args.alpha_scale,
-        coordinate_scale=args.coordinate_scale, # Default to 1, to scale the coordinate
+def PGPE_train():
+    pgpe_solver = PGPE(
+        solution_length=painter.n_params,
+        popsize=args.n_population,
+        optimizer='clipup',
+        optimizer_config={'max_speed': 0.15},
     )
 
-    target_arr = load_target(args.target_fn, (height, width))
-    save_as_png(os.path.join(args.working_dir, 'target'), arr2img(target_arr))
+    best_params_fn = lambda _ : pgpe_solver.center
 
-    # record log
-    hooks = [
-        (args.step_report_interval, PrintStepHook()),
-        (args.report_interval, PrintCostHook()),
-        (args.report_interval, SaveCostHook(save_fp=os.path.join(args.working_dir, 'cost.txt'))),
-        (
-            args.report_interval,
-            StoreImageHook(
-                render_fn=lambda params: painter.render(params, background='white'),
-                save_fp=os.path.join(args.working_dir, 'animate-background=white'),
-                fps=args.fps,
-                save_interval=args.save_as_gif_interval,
-            ),
-        ),
-        (args.report_interval, ShowImageHook(render_fn=lambda params: painter.render(params, background='white'))),
-    ]
-
-    # Maybe here to add more solvers
-    allowed_solver = ['pgpe']
-    if args.solver not in allowed_solver:
-        raise ValueError(f'Only following solver(s) is/are supported: {allowed_solver}')
-
-    solver = None
-    if args.solver == 'pgpe':
-        solver = PGPE(
-            solution_length=painter.n_params,
-            popsize=args.n_population,
-            optimizer='clipup',
-            optimizer_config={'max_speed': 0.15},
-        )
-    else:
-        raise ValueError()
-
-    tell_fn = get_tell_fn(args.solver)
-    best_params_fn = get_best_params_fn(args.solver)
-    loss_type = args.loss_type
-    # fitnesses_fn is OK to be inefficient as it's for hook's use only.
-    # To calc fitnesses with multi solutions
-    fitnesses_fn = lambda fitness_fn, solutions: [fitness_fn(_, painter, target_arr, loss_type) for _ in solutions]
-    n_iterations = args.n_iterations
-    mp_batch_size = args.mp_batch_size
-    proc_pool = mp.Pool(processes=mp.cpu_count(), initializer=init_worker, initargs=(painter, target_arr, loss_type))
-
-    for i in range(1, 1 + n_iterations):
-        solutions = solver.ask() # get solutions
-
-        # batch solutions to calc fitnesses in parallel
-        batch_it = (solutions[start:start + mp_batch_size] for start in range(0, len(solutions), mp_batch_size))
-        batch_output = proc_pool.imap(func=batch_fitness_fn_by_workers, iterable=batch_it)
-        fitnesses = [item for batch in batch_output for item in batch]
-
+    global hooks
+    for i in range(1, 1 + args.n_iterations):
+        solutions = pgpe_solver.ask() # get solutions
+        fitnesses = batching_fitnesses_fn(solutions)
+        
         # tell solver the fitnesses
-        tell_fn(solver, solutions, fitnesses)
+        pgpe_solver.tell(fitnesses)
 
         # call hooks, record logs
-        for hook in hooks:
-            trigger_itervel, hook_fn_or_obj = hook
+        for (trigger_itervel, hook_fn_or_obj) in hooks:
+            # trigger_itervel, hook_fn_or_obj = hook
             if i % trigger_itervel == 0:
-                hook_fn_or_obj(i, solver, fitness_fn, fitnesses_fn, best_params_fn)
+                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = batching_fitnesses_fn, best_params_fn=best_params_fn)
 
-    for hook in hooks:
-        _, hook_fn_or_obj = hook
-        if hasattr(hook_fn_or_obj, 'close') and callable(hook_fn_or_obj.close):
-            hook_fn_or_obj.close()
-
-    proc_pool.close()
-    proc_pool.join()
-
+    del(hooks)
 
 def main():
-    cmd_args = parse_cmd_args()
-    args = parse_args(cmd_args)
-    pre_training_loop(args) # create working directory and dump args
-
-    if args.profile:
-        cProfile.runctx('training_loop(args)', globals(), locals(), sort='cumulative')
-    else:
-        training_loop(args)
-
-
+    global args, painter, target_arr, loss_type, hooks
+    args = parse_cmd_args()
+    init_training() # create working directory and dump args
+    
+    # if args.profile:
+    #     cProfile.runctx('training_loop(args)', globals(), locals(), sort='cumulative')
+    # else:
+    match args.solver:
+        case 'pgpe':
+            PGPE_train()
+        case _:
+            raise ValueError(f'Unsupported solver: {args.solver}')
+    
 if __name__ == "__main__":
-    mp.set_start_method('spawn')
     main()

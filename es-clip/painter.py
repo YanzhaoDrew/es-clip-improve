@@ -27,6 +27,8 @@ class TrianglesPainter(object):
         
         n_triangle = params.shape[0]
         n_feature = params.shape[1]
+        
+        # 0-1 normalization
         for j in range(n_feature):
             params[:, j] = (params[:, j] - params[:, j].min()) / (params[:, j].max() - params[:, j].min())
         

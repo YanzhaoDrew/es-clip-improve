@@ -6,6 +6,24 @@ import numpy as np
 
 from PIL import Image
 
+def load_target(fn, resize):
+    """
+    Load and resize the target image as a NumPy array.
+
+    Args:
+        fn (str): The file path of the target image.
+        resize (tuple): The desired size of the target image in the format (height, width).
+
+    Returns:
+        numpy.ndarray: The preprocessed target image as a NumPy array.
+    """
+    img = Image.open(fn)
+    img = rgba2rgb(img)
+    h, w = resize
+    img = img.resize((w, h), Image.LANCZOS)
+    img_arr = img2arr(img)
+    return img_arr
+
 def img2arr(img):
     return np.array(img)
 
@@ -17,6 +35,39 @@ def rgba2rgb(rgba_img):
     rgb_img = Image.new('RGB', (h, w))
     rgb_img.paste(rgba_img)
     return rgb_img
+
+def infer_height_and_width(hint_height, hint_width, filepath):
+    """
+    Infers the height and width of an image proportionally, in order to perform scaling without specifying the height and width.
+
+    Parameters:
+        hint_height (int): The suggested height value.
+        hint_width (int): The suggested width value.
+        filepath (str): The path to the image file.
+
+    Returns:
+        inferred_height (int): The inferred height value.
+        inferred_width (int): The inferred width value.
+    """
+    fn_width, fn_height = Image.open(filepath).size
+    if hint_height <= 0:    # hint_height is invalid
+        if hint_width <= 0:
+            inferred_height, inferred_width = fn_height, fn_width  # use target image's size
+        else:  # hint_width is valid
+            inferred_width = hint_width
+            inferred_height = hint_width * fn_height // fn_width
+    else:  # hint_height is valid
+        if hint_width <= 0:
+            inferred_height = hint_height
+            inferred_width = hint_height * fn_width // fn_height
+        else:  # hint_width is valid
+            inferred_height, inferred_width = hint_height, hint_width  # use hint size
+
+    print(f'Inferring height and width. '
+          f'Hint: {hint_height, hint_width}, File: {fn_width, fn_height}, Inferred: {inferred_height, inferred_width}')
+
+    return inferred_height, inferred_width
+
 
 def save_as_gif(fn, imgs, fps=24):
     img, *imgs = imgs

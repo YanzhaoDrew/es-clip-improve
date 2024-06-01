@@ -18,7 +18,7 @@ import torchvision.transforms as transforms
 
 from utils import EasyDict
 from painter import TrianglesPainter
-from es import (PrintStepHook, PrintCostHook, SaveCostHook, StoreImageHook, ShowImageHook)
+from hooks import (PrintStepHook, PrintCostHook, SaveCostHook, StoreImageHook, ShowImageHook)
 
 
 def parse_cmd_args():
@@ -168,7 +168,7 @@ def training_loop(args):
         ),
         (
             args.report_interval,
-            PrintCostHook(fitnesses_fn_is_wrapper=False),
+            PrintCostHook(),
         ),
         (
             args.report_interval,
@@ -228,18 +228,19 @@ def training_loop(args):
             trigger_itervel, hook_fn_or_obj = hook
             if i % trigger_itervel == 0:
                 hook_fn_or_obj(
-                    i,
-                    solver,
+                    i=i,
+                    solver=solver,
                     fitness_fn=None,
                     fitnesses_fn=hook_fitnesses_fn,
                     best_params_fn=hook_best_params_fn,
                 )
 
-    for hook in hooks:
-        _, hook_fn_or_obj = hook
-        if hasattr(hook_fn_or_obj, 'close') and callable(hook_fn_or_obj.close):
-            hook_fn_or_obj.close()
-
+    # for hook in hooks:
+    #     _, hook_fn_or_obj = hook
+    #     if hasattr(hook_fn_or_obj, 'close') and callable(hook_fn_or_obj.close):
+    #         hook_fn_or_obj.close()
+    del(hooks)
+    
     worker_pool.close()
     worker_pool.join()
 
