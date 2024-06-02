@@ -8,7 +8,8 @@ import torch
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 height, width = 200, 200
 global painter, target_arr, loss_type
-painter = TrianglesPainter(h=200, w=200, n_triangle=50, alpha_scale=0.1, coordinate_scale=1.0)
+num_triangles = 100
+painter = TrianglesPainter(h=200, w=200, n_triangle=num_triangles, alpha_scale=0.1, coordinate_scale=1.0)
 target_arr = load_target('assets/monalisa.png', (height, width))
 loss_type = 'l2'
 imgs = []
@@ -55,14 +56,14 @@ def fitness_fn(params):
             raise ValueError(f'Unsupported loss type \'{loss_type}\'')
         losses.append(loss)
 
-    return -np.mean(losses)  # pgpe *maximizes*
+    return np.mean(losses)  # pgpe *maximizes*
 
 # PSO:
 from sko.PSO import PSO
 # c1: 个体学习因子(cognitive factor)
 # c2: 社会学习因子(social factor)
 # w: 惯性权重
-pso = PSO(func=fitness_fn, n_dim=500, pop=40, max_iter=100, lb=[0]*500, ub=[1]*500, w=0.8, c1=0.5, c2=0.5)
+pso = PSO(func=fitness_fn, n_dim=num_triangles*10, pop=40, max_iter=200, lb=[0]*num_triangles*10, ub=[1]*num_triangles*10, w=0.8, c1=0.8, c2=0.5)
 pso.record_mode = True
 pso.run()
 history_x = pso.record_value['X']
