@@ -72,8 +72,8 @@ class StoreImageHook(Hook):
         if i % self.save_interval == 0:
             self.save()
 
-    def __del__(self):
-        self.save()
+    # def __del__(self):
+    #     self.save()
 
     def save(self):
         save_as_gif(f'{self.save_fp}.gif', self.imgs, fps=self.fps)

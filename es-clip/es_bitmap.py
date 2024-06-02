@@ -39,7 +39,7 @@ def parse_cmd_args():
     parser.add_argument('--n_population', type=int, default=256)
     parser.add_argument('--n_iterations', type=int, default=10000)
     parser.add_argument('--mp_batch_size', type=int, default=1)
-    parser.add_argument('--solver', type=str, default='pgpe', choices=['pgpe']) # maybe add more solvers
+    parser.add_argument('--solver', type=str, default='pgpe', choices=['pgpe','ga']) # maybe add more solvers
     parser.add_argument('--report_interval', type=int, default=50)
     parser.add_argument('--step_report_interval', type=int, default=50)
     parser.add_argument('--save_as_gif_interval', type=int, default=50)
@@ -140,7 +140,7 @@ def fitness_fn(params, NUM_ROLLOUTS = 5):
             raise ValueError(f'Unsupported loss type \'{loss_type}\'')
         losses.append(loss)
 
-    return -np.mean(losses)  # pgpe *maximizes*
+    return np.mean(losses)  # pgpe *maximizes*
 
 def fitnesses_fn(solutions):
     """
@@ -185,7 +185,7 @@ def PGPE_train():
     global hooks
     for i in range(1, 1 + args.n_iterations):
         solutions = pgpe_solver.ask() # get solutions
-        fitnesses = batching_fitnesses_fn(solutions)
+        fitnesses = -np.array(batching_fitnesses_fn(solutions))
         
         # tell solver the fitnesses
         pgpe_solver.tell(fitnesses)
@@ -194,9 +194,22 @@ def PGPE_train():
         for (trigger_itervel, hook_fn_or_obj) in hooks:
             # trigger_itervel, hook_fn_or_obj = hook
             if i % trigger_itervel == 0:
-                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = batching_fitnesses_fn, best_params_fn=best_params_fn)
+                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = lambda solutions: -np.array(batching_fitnesses_fn(solutions)), best_params_fn=best_params_fn)
 
-    del(hooks)
+def GA_train():
+    from sko.GA import GA
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    ga_solver.to(device=device)
+    ga_solver = GA(func=lambda sol: fitness_fn(sol, 5), n_dim=painter.n_params, size_pop=args.n_population, max_iter=args.n_iterations, prob_mut=0.001, lb=[0]*painter.n_params, ub=[1]*painter.n_params, precision=1e-3)
+    ga_solver.run()
+    
+    # Backtracking to hook
+    i=0
+    for solution in ga_solver.generation_best_X:
+        i+=1
+        for (trigger_itervel, hook_fn_or_obj) in hooks:
+            if i % trigger_itervel == 0:
+                hook_fn_or_obj(i = i, solver = ga_solver, fitnesses_fn = batching_fitnesses_fn, best_params_fn=lambda _ : solution)
 
 def main():
     global args, painter, target_arr, loss_type, hooks
@@ -209,6 +222,8 @@ def main():
     match args.solver:
         case 'pgpe':
             PGPE_train()
+        case 'ga':
+            GA_train()
         case _:
             raise ValueError(f'Unsupported solver: {args.solver}')
     
