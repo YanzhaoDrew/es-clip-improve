@@ -2,9 +2,12 @@
 
 import os
 
-import numpy as np
+# import numpy as np
+import torch
+import torch.utils
+import torchvision
 
-from PIL import Image
+from torchvision.utils import Image
 
 def load_target(fn, resize):
     """
@@ -21,14 +24,14 @@ def load_target(fn, resize):
     img = rgba2rgb(img)
     h, w = resize
     img = img.resize((w, h), Image.LANCZOS)
-    img_arr = img2arr(img)
+    img_arr = img2tensor(img)
     return img_arr
 
-def img2arr(img):
-    return np.array(img)
+def img2tensor(img):
+    return torchvision.transforms.PILToTensor().__call__(img)
 
-def arr2img(arr):
-    return Image.fromarray(arr)
+def tensor2img(tensor):
+    return torchvision.transforms.ToPILImage().__call__(tensor)
 
 def rgba2rgb(rgba_img):
     h, w = rgba_img.size

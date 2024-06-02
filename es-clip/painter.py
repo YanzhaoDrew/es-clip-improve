@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import numpy as np
-from PIL import Image, ImageDraw
-
+from torchvision.utils import Image, ImageDraw
+import torch
+from utils import tensor2img,img2tensor
 class TrianglesPainter(object):
 
     def __init__(self, h, w, n_triangle=10, alpha_scale=0.1, coordinate_scale=1.0):
@@ -16,14 +16,15 @@ class TrianglesPainter(object):
         return self.n_triangle * 10 # [x0, y0, x1, y1, x2, y2, r, g, b, a]
          
     def random_params(self):
-        return np.random.rand(self.n_params)
+        return torch.rand(self.n_params)
     
     def render(self, params, background='noise'):
         h, w = self.h, self.w
         alpha_scale = self.alpha_scale
         coordinate_scale = self.coordinate_scale
         
-        params = params.reshape(-1, 10).copy()
+        params = torch.Tensor(params.copy()).cuda()
+        params = params.reshape(-1, 10)
         
         n_triangle = params.shape[0]
         n_feature = params.shape[1]
@@ -33,7 +34,7 @@ class TrianglesPainter(object):
             params[:, j] = (params[:, j] - params[:, j].min()) / (params[:, j].max() - params[:, j].min())
         
         if background == 'noise':
-            img = Image.fromarray(  (np.random.rand( h, w, 3 ) * 255).astype(np.uint8) )
+            img = tensor2img(  (torch.rand( 3, h, w ) * 255).to(torch.uint8) )
         elif background == 'white':
             img = Image.new("RGB", (w, h), (255, 255, 255))
         elif background == 'black':
@@ -61,5 +62,5 @@ class TrianglesPainter(object):
         
         del draw
         
-        img_arr = np.array(img)
+        img_arr = img2tensor(img)
         return img_arr

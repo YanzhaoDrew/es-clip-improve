@@ -2,26 +2,26 @@
 
 import os
 
-os.environ['OPENBLAS_NUM_THREADS'] = '20'   # set the number of threads used by OpenBLAS
-os.environ['OMP_NUM_THREADS'] = '20'        # set the number of threads used by OpenMP
+# os.environ['OPENBLAS_NUM_THREADS'] = '20'   # set the number of threads used by OpenBLAS
+# os.environ['OMP_NUM_THREADS'] = '20'        # set the number of threads used by OpenMP
 
 import argparse
 # import cProfile
 import json
 # import multiprocessing as mp
 import torch
-if torch.cuda.is_available():
-    torch.device('cuda')
-mp = torch.multiprocessing.get_context('fork') # fork for preserving all variables in the main process
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+mp = torch.multiprocessing.get_context('forkserver') # fork for preserving all variables in the main process
     
 import os
 import re
 
-import numpy as np
+# import numpy as np
+from numpy import mean
 # from PIL import Image
 from pgpelib import PGPE
 
-from utils import (img2arr, arr2img, rgba2rgb, save_as_png, EasyDict, load_target, infer_height_and_width)
+from utils import (img2tensor, tensor2img, rgba2rgb, save_as_png, EasyDict, load_target, infer_height_and_width)
 from painter import TrianglesPainter
 from hooks import (PrintStepHook, PrintCostHook, SaveCostHook, StoreImageHook, ShowImageHook)
 
@@ -38,7 +38,7 @@ def parse_cmd_args():
     parser.add_argument('--fps', type=int, default=12)
     parser.add_argument('--n_population', type=int, default=256)
     parser.add_argument('--n_iterations', type=int, default=10000)
-    parser.add_argument('--mp_batch_size', type=int, default=1)
+    # parser.add_argument('--mp_batch_size', type=int, default=1)
     parser.add_argument('--solver', type=str, default='pgpe', choices=['pgpe','ga']) # maybe add more solvers
     parser.add_argument('--report_interval', type=int, default=50)
     parser.add_argument('--step_report_interval', type=int, default=50)
@@ -75,8 +75,8 @@ def init_training():
 
     # Load target image
     global target_arr
-    target_arr = load_target(args.target_fn, (height, width))
-    save_as_png(os.path.join(args.working_dir, 'target'), arr2img(target_arr))
+    target_arr = load_target(args.target_fn, (height, width)).cuda()
+    save_as_png(os.path.join(args.working_dir, 'target'), tensor2img(target_arr))
 
     # Create painter
     global painter
@@ -109,6 +109,11 @@ def init_training():
         (args.report_interval, ShowImageHook(render_fn=lambda params: painter.render(params, background='white'))),
     ]
 
+def reload_vars(painter_, loss_type_, target_arr_):
+    global painter, loss_type, target_arr
+    painter, loss_type, target_arr = painter_, loss_type_, target_arr_
+    
+
 def fitness_fn(params, NUM_ROLLOUTS = 5):
     """Calculate Fitness
 
@@ -121,26 +126,26 @@ def fitness_fn(params, NUM_ROLLOUTS = 5):
     """
     losses = []
     for _ in range(NUM_ROLLOUTS):
-        rendered_arr = painter.render(params)
+        rendered_arr = painter.render(params).cuda(device)
         rendered_arr_rgb = rendered_arr[..., :3]
-        rendered_arr_rgb = rendered_arr_rgb.astype(np.float32) / 255.
+        rendered_arr_rgb = rendered_arr_rgb / 255.
 
         target_arr_rgb = target_arr[..., :3]
-        target_arr_rgb = target_arr_rgb.astype(np.float32) / 255.
-
+        target_arr_rgb = target_arr_rgb / 255.
+        
         if loss_type == 'l2':
             pixelwise_l2_loss = (rendered_arr_rgb - target_arr_rgb)**2
             l2_loss = pixelwise_l2_loss.mean()
             loss = l2_loss
         elif loss_type == 'l1':
-            pixelwise_l1_loss = np.abs(rendered_arr_rgb - target_arr_rgb)
+            pixelwise_l1_loss = torch.abs(rendered_arr_rgb - target_arr_rgb)
             l1_loss = pixelwise_l1_loss.mean()
             loss = l1_loss
         else:
             raise ValueError(f'Unsupported loss type \'{loss_type}\'')
         losses.append(loss)
 
-    return np.mean(losses)  # pgpe *maximizes*
+    return -torch.mean(torch.Tensor(losses))  # pgpe *maximizes*
 
 def fitnesses_fn(solutions):
     """
@@ -152,25 +157,10 @@ def fitnesses_fn(solutions):
     Returns:
         list: A list of fitness values corresponding to each solution.
     """
-    return list(map(fitness_fn, solutions))
-
-def batching_fitnesses_fn(solutions):
-    """
-    Calculate the fitnesses of a list of solutions in batches using multiprocessing.
-
-    Args:
-        solutions (list): A list of solutions to calculate fitnesses for.
-
-    Returns:
-        list: A list of fitness values corresponding to each solution.
-    """
-    proc_pool = mp.Pool(initargs=(painter,loss_type,target_arr)) # Process Pool
-    batches_in = (solutions[start:start + args.mp_batch_size] for start in range(0, len(solutions), args.mp_batch_size)) # split solutions into batches
-    batches_out = proc_pool.imap(func=fitnesses_fn, iterable=batches_in) # map fitness_fn to each batch
-    fitnesses = [item for batch in batches_out for item in batch]
-    
-    proc_pool.close();proc_pool.join(); # close and join the pool
-    return fitnesses
+    proc_pool = mp.Pool(initializer=reload_vars,initargs=(painter,loss_type,target_arr)) # Process Pool
+    out = proc_pool.map(func=fitness_fn, iterable=solutions)
+    proc_pool.close();proc_pool.join();
+    return list(out)
 
 def PGPE_train():
     pgpe_solver = PGPE(
@@ -185,31 +175,30 @@ def PGPE_train():
     global hooks
     for i in range(1, 1 + args.n_iterations):
         solutions = pgpe_solver.ask() # get solutions
-        fitnesses = -np.array(batching_fitnesses_fn(solutions))
+        fitnesses = [-fitness for fitness in fitnesses_fn(solutions)]
         
         # tell solver the fitnesses
         pgpe_solver.tell(fitnesses)
 
         # call hooks, record logs
         for (trigger_itervel, hook_fn_or_obj) in hooks:
-            # trigger_itervel, hook_fn_or_obj = hook
             if i % trigger_itervel == 0:
-                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = lambda solutions: -np.array(batching_fitnesses_fn(solutions)), best_params_fn=best_params_fn)
+                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = lambda solutions: [-fitness for fitness in fitnesses_fn(solutions)], best_params_fn=best_params_fn)
 
 def GA_train():
     from sko.GA import GA
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    ga_solver = GA(func=lambda sol: -fitness_fn(sol, 5), n_dim=painter.n_params, size_pop=args.n_population, max_iter=args.n_iterations, prob_mut=0.001, lb=[0]*painter.n_params, ub=[1]*painter.n_params, precision=1e-6)
     ga_solver.to(device=device)
-    ga_solver = GA(func=lambda sol: fitness_fn(sol, 5), n_dim=painter.n_params, size_pop=args.n_population, max_iter=args.n_iterations, prob_mut=0.001, lb=[0]*painter.n_params, ub=[1]*painter.n_params, precision=1e-3)
     ga_solver.run()
     
     # Backtracking to hook
-    i=0
-    for solution in ga_solver.generation_best_X:
-        i+=1
+    for i in range(len(ga_solver.generation_best_X)):
+        solution = ga_solver.generation_best_X[i]
+        fitness = ga_solver.generation_best_Y[i]
+        
         for (trigger_itervel, hook_fn_or_obj) in hooks:
-            if i % trigger_itervel == 0:
-                hook_fn_or_obj(i = i, solver = ga_solver, fitnesses_fn = batching_fitnesses_fn, best_params_fn=lambda _ : solution)
+            if (i+1) % trigger_itervel == 0:
+                hook_fn_or_obj(i = i+1, solver = ga_solver, fitnesses_fn = lambda _ : fitness , best_params_fn=lambda _ : solution)
 
 def main():
     global args, painter, target_arr, loss_type, hooks

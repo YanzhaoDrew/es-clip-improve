@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from datetime import datetime
-from utils import (isnotebook, arr2img, save_as_gif, save_as_frames)
+from utils import (isnotebook, tensor2img, save_as_gif, save_as_frames)
 
 class Hook(object):
     def __init__(self):
@@ -67,7 +67,7 @@ class StoreImageHook(Hook):
 
     def __call__(self, i, solver, best_params_fn, **kwargs):
         best_params = best_params_fn(solver)
-        img = arr2img(self.render_fn(best_params))
+        img = tensor2img(self.render_fn(best_params))
         self.imgs.append(img)
         if i % self.save_interval == 0:
             self.save()
@@ -88,6 +88,6 @@ class ShowImageHook(Hook):
     def __call__(self, solver, best_params_fn, **kwargs):
         if isnotebook():
             best_params = best_params_fn(solver)
-            img = arr2img(self.render_fn(best_params))
+            img = tensor2img(self.render_fn(best_params))
             # pylint:disable=undefined-variable
             display(img)  # type: ignore
