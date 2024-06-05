@@ -175,7 +175,7 @@ def PGPE_train():
     global hooks
     for i in range(1, 1 + args.n_iterations):
         solutions = pgpe_solver.ask() # get solutions
-        fitnesses = [-fitness for fitness in fitnesses_fn(solutions)]
+        fitnesses = fitnesses_fn(solutions)
         
         # tell solver the fitnesses
         pgpe_solver.tell(fitnesses)
@@ -183,7 +183,7 @@ def PGPE_train():
         # call hooks, record logs
         for (trigger_itervel, hook_fn_or_obj) in hooks:
             if i % trigger_itervel == 0:
-                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = lambda solutions: [-fitness for fitness in fitnesses_fn(solutions)], best_params_fn=best_params_fn)
+                hook_fn_or_obj(i = i, solver = pgpe_solver, fitnesses_fn = fitnesses_fn, best_params_fn=best_params_fn)
 
 def GA_train():
     from sko.GA import GA
