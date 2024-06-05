@@ -194,12 +194,13 @@ def evolve():
             indices = torch.where(torch.tensor(FITNESS_TEST) > torch.tensor(FITNESS_BEST[prior_dna_size:prior_dna_size + dna[0].size(0)]))
             # 更新满足条件的 DNA_BEST
             DNA_BEST[prior_dna_size + indices[0]] = dna[0][indices[0]]
+            FITNESS_BEST[prior_dna_size:prior_dna_size + dna[0].size(0)] = FITNESS_TEST
             FITNESS_BEST_NORMALIZED = 100 * max(FITNESS_BEST)
             # print(FITNESS_BEST)
             # EL_FITNESS.config(text=f"{FITNESS_BEST_NORMALIZED:.2f}%")
             COUNTER_BENEFIT += 1
             # EL_STEP_BENEFIT.config(text=str(COUNTER_BENEFIT))
-            images.append(drawDNA(DNA_BEST[FITNESS_BEST.index(max(FITNESS_BEST)) + id*dna[0].size(0)], IHEIGHT, IWIDTH))
+            images.append(drawDNA(DNA_BEST[FITNESS_BEST.index(max(FITNESS_BEST))], IHEIGHT, IWIDTH))
         else:
             pass_gene_mutation(dna[0], DNA_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)], CHANGED_SHAPE_INDEX)
 
@@ -242,7 +243,7 @@ if __name__ == "__main__":
     DNA_TEST = init_dna(DNA_TEST.clone())
     DNA_BEST = init_dna(DNA_BEST.clone())
     # print(DNA_TEST)
-    for i in tqdm(range(1000)):
+    for i in tqdm(range(10)):
         evolve()
     save_as_gif('test_as_clip.gif', images, fps=8)
     Image._show(images[-1])
