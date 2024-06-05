@@ -165,16 +165,17 @@ def evolve():
 
         FITNESS_TEST = compute_fitness(dna[0])
 
-        if max(FITNESS_TEST) < min(FITNESS_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)]):
+        if min(FITNESS_TEST) < max(FITNESS_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)]):
             pass_gene_mutation(dna[0], DNA_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)], CHANGED_SHAPE_INDEX)
             indices = torch.where(
                 torch.tensor(FITNESS_TEST) > torch.tensor(FITNESS_BEST[prior_dna_size:prior_dna_size + dna[0].size(0)]))
             # 更新满足条件的 DNA_BEST
             DNA_BEST[prior_dna_size + indices[0]] = dna[0][indices[0]]
-            FITNESS_BEST_NORMALIZED = 100 * (1 - min(FITNESS_BEST) / 1800000000)
+            FITNESS_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)] = FITNESS_TEST
+            FITNESS_BEST_NORMALIZED = 100 * (1 - min(FITNESS_BEST) / 2000000000.0)
             COUNTER_BENEFIT += 1
 
-            images.append(drawDNA(DNA_BEST[FITNESS_BEST.index(min(FITNESS_BEST)) + id*dna[0].size(0)], IHEIGHT, IWIDTH))
+            images.append(drawDNA(DNA_BEST[FITNESS_BEST.index(min(FITNESS_BEST))], IHEIGHT, IWIDTH))
         else:
             pass_gene_mutation(dna[0], DNA_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)], CHANGED_SHAPE_INDEX)
 
@@ -182,10 +183,9 @@ def evolve():
         DNA_TEST[prior_dna_size:prior_dna_size+dna[0].size(0)] = dna[0]
         # EL_STEP_TOTAL.config(text=str(COUNTER_TOTAL))
 
-        # if COUNTER_TOTAL % 10 == 0:
-        #     passed = get_timestamp() - LAST_START
-        #     # print('paseed:', passed)
-        #     # EL_ELAPSED_TIME.config(text=render_nice_time(ELAPSED_TIME + passed))
+        # if COUNTER_BENEFIT % 10 == 0:
+        #     print('有', COUNTER_BENEFIT)
+
 
         if COUNTER_TOTAL % 1 == 0:
             FITNESS_BEST_RECORD.append(FITNESS_BEST_NORMALIZED)
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     DNA_TEST = init_dna(DNA_TEST.clone())
     DNA_BEST = init_dna(DNA_BEST.clone())
     # print(DNA_TEST)
-    for i in tqdm(range(1000)):
+    for i in tqdm(range(200)):
         evolve()
     save_as_gif('test_as_bitmap.gif', images, fps=16)
     Image._show(images[-1])
