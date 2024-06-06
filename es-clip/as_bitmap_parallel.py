@@ -16,13 +16,13 @@ INIT_BATCH_SIZE = 128
 ITERATION = 10000
 
 # Constants
-ACTUAL_SHAPES = 50
-ACTUAL_POINTS = 3
+ACTUAL_SHAPES = 80
+# ACTUAL_POINTS = 6
 IWIDTH = 200
 IHEIGHT = 200
 NORM_COEF = 1.0
 MAX_POINTS = 3
-MAX_SHAPES = 50
+# MAX_SHAPES = 50
 MAX_COLOR_SHAPES = 4
 
 # Global variables (these need to be initialized properly)
@@ -110,17 +110,17 @@ def compute_fitness(dna):
 def init_dna(dna):
     # dna.shape = (INIT_POPULATION, MAX_SHAPES, MAX_POINTS * 2 + 4)
     for p in range(dna.size(0)):
-        for i in range(MAX_SHAPES):
+        for i in range(ACTUAL_SHAPES):
             dna[p, i, :MAX_POINTS] = torch.randint(0, IWIDTH, (MAX_POINTS,), device=device)
             dna[p, i, MAX_POINTS:] = torch.randint(0, IHEIGHT, (MAX_POINTS,), device=device)
 
     # Initialize color tensor
     if INIT_TYPE == "random":
-        color = torch.randint(0, 256, (dna.size(0), MAX_SHAPES, 4), device=device).float()
+        color = torch.randint(0, 256, (dna.size(0), ACTUAL_SHAPES, 4), device=device).float()
         # color[:, :, 3] = 0.001
     else:
         color = torch.tensor([INIT_R, INIT_G, INIT_B, INIT_A], dtype=torch.float32, device=device)
-        color = color.repeat(dna.size(0), MAX_SHAPES, 1)
+        color = color.repeat(dna.size(0), ACTUAL_SHAPES, 1)
 
     # Concatenate color tensor to dna tensor
     dna = torch.cat((dna, color), dim=2)
@@ -135,7 +135,7 @@ def pass_gene_mutation(dna_from, dna_to, gene_index):
 def mutate_medium(dna_out):
     # dna_out shape(INIT_POPULATION, MAX_SHAPES, MAX_POINTS * 2 + 4)
     global CHANGED_SHAPE_INDEX
-    CHANGED_SHAPE_INDEX = rand_int(MAX_SHAPES - 1)
+    CHANGED_SHAPE_INDEX = rand_int(ACTUAL_SHAPES - 1)
 
     roulette = rand_float(2.0)
     batch_size = dna_out.size(0)
@@ -215,10 +215,9 @@ if __name__ == "__main__":
     # print(DNA_TEST)
     for i in tqdm(range(ITERATION)):
         evolve()
-    save_as_gif(f'test_as_bitmap-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.gif', images, fps=100)
+    save_as_gif(f'as_bitmap_out/test_as_bitmap-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}-ACTUAL_SHAPES{ACTUAL_SHAPES}.gif', images, fps=len(images) / 5)
     Image._show(images[-1])
-    images[-1].save(f"test_as_bitmap-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.png")
-    
+    images[-1].save(f"as_bitmap_out/test_as_bitmap-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}-ACTUAL_SHAPES{ACTUAL_SHAPES}.png")
 
     plt.figure(figsize=(10, 6))
     plt.plot(range(len(FITNESS_BEST_RECORD)), FITNESS_BEST_RECORD, marker='o')
@@ -226,4 +225,5 @@ if __name__ == "__main__":
     plt.ylabel('Best Fitness')
     plt.title('Best Fitness Over Generations')
     plt.grid(True)
+    plt.savefig(f'as_bitmap_out/fitness_as_bitmap-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}-ACTUAL_SHAPES{ACTUAL_SHAPES}.png')
     plt.show()
