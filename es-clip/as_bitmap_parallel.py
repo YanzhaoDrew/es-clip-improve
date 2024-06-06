@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
 device_index = 'cuda:0'
-INIT_POPULATION = 50
+INIT_POPULATION = 1
 INIT_BATCH_SIZE = 128
 ITERATION = 10000
 
@@ -39,7 +39,7 @@ LAST_COUNTER = 0
 
 # INIT
 INIT_TYPE = 'else'
-INIT_A = 50
+INIT_A = 0
 INIT_G = 0
 INIT_B = 0
 INIT_R = 0
@@ -101,8 +101,8 @@ def compute_fitness(dna):
     target_image_arr = target_image.unsqueeze(0)#.repeat(dna.size(0), 1, 1, 1)
 
     # 将绘制的图像与目标图像做差
-    l2_loss_per_pixel = torch.pow(dna_images - target_image_arr, 2)
-    l2_loss_per_population = torch.sum(l2_loss_per_pixel, dim=(1, 2, 3))
+    l2_loss_per_pixel = torch.pow(dna_images/255.0 - target_image_arr/255.0, 2)
+    l2_loss_per_population = torch.mean(l2_loss_per_pixel, dim=(1, 2, 3))
 
     return l2_loss_per_population.to('cpu').tolist()
 
@@ -176,7 +176,7 @@ def evolve():
                 # torch.tensor(COST_TEST) > torch.tensor(COST_BEST[prior_dna_size:prior_dna_size + dna[0].size(0)]))
             # 更新满足条件的 DNA_BEST
             COST_BEST = COST_TEST[min_COST_TEST_index]
-            FITNESS_BEST_NORMALIZED = 100 * (1 -COST_BEST / 2000000000.0)
+            FITNESS_BEST_NORMALIZED = 100 * (1 -COST_BEST)
             COUNTER_BENEFIT += 1
 
             images.append(drawDNA(DNA_BEST[0], IHEIGHT, IWIDTH))
