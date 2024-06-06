@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
 device_index = 'cuda:0'
-INIT_POPULATION = 20
+INIT_POPULATION = 50
 INIT_BATCH_SIZE = 128
 ITERATION = 10000
 
@@ -138,23 +138,25 @@ def mutate_medium(dna_out):
     CHANGED_SHAPE_INDEX = rand_int(MAX_SHAPES - 1)
 
     roulette = rand_float(2.0)
+    batch_size = dna_out.size(0)
 
     if roulette < 1:
         if roulette < 0.25:
-            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2] = rand_int(255)
+            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2] = torch.randint(0, 256, (batch_size,), device=device)
+            
         elif roulette < 0.5:
-            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2 + 1] = rand_int(255)
+            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2 + 1] = torch.randint(0, 256, (batch_size,), device=device)
         elif roulette < 0.75:
-            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2 + 2] = rand_int(255)
+            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2 + 2] = torch.randint(0, 256, (batch_size,), device=device)
         else:
-            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2 + 3] = rand_int(255)
+            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS * 2 + 3] = torch.randint(0, 256, (batch_size,), device=device)
     else:
         CHANGED_POINT_INDEX = rand_int(MAX_POINTS - 1)
 
         if roulette < 1.5:
-            dna_out[:, CHANGED_SHAPE_INDEX, CHANGED_POINT_INDEX] = rand_int(IWIDTH)
+            dna_out[:, CHANGED_SHAPE_INDEX, CHANGED_POINT_INDEX] = torch.randint(0, IWIDTH+1, (batch_size,), device=device)
         else:
-            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS + CHANGED_POINT_INDEX] = rand_int(IHEIGHT)
+            dna_out[:, CHANGED_SHAPE_INDEX, MAX_POINTS + CHANGED_POINT_INDEX] = torch.randint(0, IHEIGHT+1, (batch_size,), device=device)
 
 def evolve():
     global COST_TEST, COST_BEST, FITNESS_BEST_NORMALIZED, COUNTER_BENEFIT, COUNTER_TOTAL, LAST_START, LAST_COUNTER, ELAPSED_TIME, prior_dna_size

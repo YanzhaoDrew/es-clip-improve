@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from torchvision.utils import Image, ImageDraw
 import torch
+import torch.nn.functional as F
 from utils import tensor2img,img2tensor
 class TrianglesPainter(object):
 
@@ -30,8 +31,13 @@ class TrianglesPainter(object):
         n_feature = params.shape[1]
         
         # 0-1 normalization
-        for j in range(n_feature):
-            params[:, j] = (params[:, j] - params[:, j].min()) / (params[:, j].max() - params[:, j].min())
+        # for j in range(n_feature):
+        #     params[:, j] = (params[:, j] - params[:, j].min()) / (params[:, j].max() - params[:, j].min())
+        min_values = torch.min(params, dim=0).values
+        max_values = torch.max(params, dim=0).values
+        params = (params - min_values) / (max_values - min_values)
+        
+        # params = F.normalize(params, p=2, dim=0)
         
         if background == 'noise':
             img = tensor2img(  (torch.rand( 3, h, w ) * 255).to(torch.uint8) )

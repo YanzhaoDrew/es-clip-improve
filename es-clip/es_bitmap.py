@@ -11,7 +11,7 @@ import json
 # import multiprocessing as mp
 import torch
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-mp = torch.multiprocessing.get_context('forkserver') # fork for preserving all variables in the main process
+mp = torch.multiprocessing.get_context('spawn') # fork for preserving all variables in the main process
     
 import os
 import re
@@ -21,7 +21,7 @@ from numpy import mean
 # from PIL import Image
 from pgpelib import PGPE
 
-from utils import (img2tensor, tensor2img, rgba2rgb, save_as_png, EasyDict, load_target, infer_height_and_width)
+from utils import *
 from painter import TrianglesPainter
 from hooks import (PrintStepHook, PrintCostHook, SaveCostHook, StoreImageHook, ShowImageHook)
 
@@ -75,7 +75,7 @@ def init_training():
 
     # Load target image
     global target_arr
-    target_arr = load_target(args.target_fn, (height, width)).cuda()
+    target_arr = load_target_as_tensor(args.target_fn, (height, width)).cuda()
     save_as_png(os.path.join(args.working_dir, 'target'), tensor2img(target_arr))
 
     # Create painter
@@ -125,13 +125,13 @@ def fitness_fn(params, NUM_ROLLOUTS = 5):
         float: minus fitness
     """
     losses = []
+    target_arr_rgb = target_arr[..., :3]
+    target_arr_rgb = target_arr_rgb / 255.
+    
     for _ in range(NUM_ROLLOUTS):
-        rendered_arr = painter.render(params).cuda(device)
+        rendered_arr = painter.render(params).cuda()
         rendered_arr_rgb = rendered_arr[..., :3]
         rendered_arr_rgb = rendered_arr_rgb / 255.
-
-        target_arr_rgb = target_arr[..., :3]
-        target_arr_rgb = target_arr_rgb / 255.
         
         if loss_type == 'l2':
             pixelwise_l2_loss = (rendered_arr_rgb - target_arr_rgb)**2
@@ -199,6 +199,7 @@ def GA_train():
         for (trigger_itervel, hook_fn_or_obj) in hooks:
             if (i+1) % trigger_itervel == 0:
                 hook_fn_or_obj(i = i+1, solver = ga_solver, fitnesses_fn = lambda _ : fitness , best_params_fn=lambda _ : solution)
+    # save_as_gif(f'test_es_bitmap-ITER{args.n_iterations}-POP{args.n_population}.gif', images, fps=100)
 
 def main():
     global args, painter, target_arr, loss_type, hooks

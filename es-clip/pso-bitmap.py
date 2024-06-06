@@ -1,8 +1,8 @@
 from painter import TrianglesPainter
-from es_bitmap import load_target, EasyDict, PrintCostHook, PrintStepHook, SaveCostHook, StoreImageHook, ShowImageHook
+from utils import load_target_as_tensor, EasyDict#, PrintCostHook, PrintStepHook, SaveCostHook, StoreImageHook, ShowImageHook
 import numpy as np
 import os
-from utils import arr2img,save_as_gif, save_as_frames
+from utils import tensor2img,save_as_gif, save_as_frames
 import matplotlib.pyplot as plt
 import torch
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -10,7 +10,7 @@ height, width = 200, 200
 global painter, target_arr, loss_type
 num_triangles = 100
 painter = TrianglesPainter(h=200, w=200, n_triangle=num_triangles, alpha_scale=0.1, coordinate_scale=1.0)
-target_arr = load_target('assets/monalisa.png', (height, width))
+target_arr = load_target_as_tensor('assets/monalisa.png', (height, width))
 loss_type = 'l2'
 imgs = []
 
@@ -39,10 +39,10 @@ def fitness_fn(params):
     for _ in range(NUM_ROLLOUTS):
         rendered_arr = painter.render(params)
         rendered_arr_rgb = rendered_arr[..., :3]
-        rendered_arr_rgb = rendered_arr_rgb.astype(np.float32) / 255.
+        rendered_arr_rgb = rendered_arr_rgb / 255.
 
         target_arr_rgb = target_arr[..., :3]
-        target_arr_rgb = target_arr_rgb.astype(np.float32) / 255.
+        target_arr_rgb = target_arr_rgb / 255.
 
         if loss_type == 'l2':
             pixelwise_l2_loss = (rendered_arr_rgb - target_arr_rgb)**2
@@ -70,12 +70,12 @@ history_x = pso.record_value['X']
 render_fn = lambda params: painter.render(params, background='white')
 save_fp = os.path.join(args.working_dir, 'animate-background=white')
 for i, x in enumerate(history_x):
-    img = arr2img(render_fn(x))
+    img = tensor2img(render_fn(x))
     imgs.append(img)
 save_as_gif(f'{save_fp}.gif', imgs, fps=args.fps)
 save_as_frames(f'{save_fp}.frames', imgs, overwrite=False)
 print('best_x is ', pso.gbest_x, 'best_y is', pso.gbest_y)
-img = arr2img(render_fn(pso.gbest_x))
+img = tensor2img(render_fn(pso.gbest_x))
 # pylint:disable=undefined-variable
 fig, ax = plt.subplots()
 ax.imshow(img)

@@ -251,7 +251,7 @@ if __name__ == "__main__":
         evolve()
     save_as_gif(f'test_as_clip-text{text}-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.gif', images, fps=8)
     Image._show(images[-1])
-    images[-1].save(f"test_as_clip-text{text}-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.gif")
+    images[-1].save(f"test_as_clip-text{text}-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.png")
 
     plt.figure(figsize=(10, 6))
     plt.plot(range(len(FITNESS_BEST_RECORD)), FITNESS_BEST_RECORD, marker='o')
