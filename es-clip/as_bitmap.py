@@ -4,6 +4,7 @@ from PIL import Image, ImageTk, ImageChops
 from utils import load_target, save_as_gif
 from tqdm import *
 import matplotlib.pyplot as plt
+from torch import Tensor
 
 # Constants
 ACTUAL_SHAPES = 50
@@ -17,8 +18,8 @@ MAX_SHAPES = 50
 # Global variables (these need to be initialized properly)
 DNA_TEST = []
 DNA_BEST = []
-FITNESS_TEST = 0
-FITNESS_BEST = float('inf')
+COST_TEST = 0
+COST_BEST = float('inf')
 FITNESS_BEST_RECORD = []
 FITNESS_BEST_NORMALIZED = 0
 CHANGED_SHAPE_INDEX = 0
@@ -47,7 +48,7 @@ from PIL import Image, ImageDraw
 
 
 def drawDNA(dna, width, height):
-    image = Image.new('RGB', (width, height), color='white')
+    image = Image.new('RGBA', (width, height))
     draw = ImageDraw.Draw(image)
 
     for i in range(len(dna)):
@@ -78,6 +79,9 @@ def compute_fitness(dna):
 
     # 将差异图像的像素值元组转换为整数,并计算总和
     fitness = sum(sum(pixel) for pixel in diff.getdata())
+    # diff_pixels = Tensor(diff.getdata())
+    # fitness = diff_pixels.sum()
+    # diff.getdata()
 
     return fitness
 
@@ -89,7 +93,7 @@ def init_dna(dna):
             points.append({'x': rand_int(IWIDTH), 'y': rand_int(IHEIGHT)})
 
         if INIT_TYPE == "random":
-            color = {'r': rand_int(255), 'g': rand_int(255), 'b': rand_int(255), 'a': 0.001}
+            color = {'r': rand_int(255), 'g': rand_int(255), 'b': rand_int(255), 'a': rand_int(255)}
         else:
             color = {'r': INIT_R, 'g': INIT_G, 'b': INIT_B, 'a': INIT_A}
 
@@ -112,7 +116,7 @@ def pass_gene_mutation(dna_from, dna_to, gene_index):
 
 
 def mutate_medium(dna_out):
-    global CHANGED_SHAPE_INDEX
+    global CHANGED_SHAPE_INDEX # 需要变异的多边形的索引
     CHANGED_SHAPE_INDEX = rand_int(ACTUAL_SHAPES - 1)
 
     roulette = rand_float(2.0)
@@ -136,17 +140,17 @@ def mutate_medium(dna_out):
 
 
 def evolve():
-    global FITNESS_TEST, FITNESS_BEST, FITNESS_BEST_NORMALIZED, COUNTER_BENEFIT, COUNTER_TOTAL, LAST_START, LAST_COUNTER, ELAPSED_TIME
+    global COST_TEST, COST_BEST, FITNESS_BEST_NORMALIZED, COUNTER_BENEFIT, COUNTER_TOTAL, LAST_START, LAST_COUNTER, ELAPSED_TIME
 
-    mutateDNA(DNA_TEST)
-    drawDNA(DNA_TEST, IHEIGHT, IWIDTH)
+    mutateDNA(DNA_TEST) # 只变异一个基因
+    # drawDNA(DNA_TEST, IHEIGHT, IWIDTH)
 
-    FITNESS_TEST = compute_fitness(DNA_TEST)
+    COST_TEST = compute_fitness(DNA_TEST)
 
-    if FITNESS_TEST < FITNESS_BEST:
+    if COST_TEST < COST_BEST:
         pass_gene_mutation(DNA_TEST, DNA_BEST, CHANGED_SHAPE_INDEX)
-        FITNESS_BEST = FITNESS_TEST
-        FITNESS_BEST_NORMALIZED = 100 * (1 - FITNESS_BEST / 13300000)
+        COST_BEST = COST_TEST
+        FITNESS_BEST_NORMALIZED = 100 * (1 - COST_BEST / 13300000)
         # print(FITNESS_BEST)
         COUNTER_BENEFIT += 1
         images.append(drawDNA(DNA_BEST, IHEIGHT, IWIDTH))

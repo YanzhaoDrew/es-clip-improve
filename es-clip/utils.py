@@ -21,9 +21,25 @@ def load_target(fn, resize):
         numpy.ndarray: The preprocessed target image as a NumPy array.
     """
     img = Image.open(fn)
-    img = rgba2rgb(img)
+    # img = rgba2rgb(img)
     h, w = resize
     img = img.resize((w, h), Image.LANCZOS)
+    # img_arr = img2tensor(img)
+    return img
+
+def load_target_as_tensor(fn, resize):
+    """
+    Load and resize the target image as a PyTorch tensor.
+
+    Args:
+        fn (str): The file path of the target image.
+        resize (tuple): The desired size of the target image in the format (height, width).
+
+    Returns:
+        torch.Tensor: The preprocessed target image as a PyTorch tensor.
+    """
+    img = load_target(fn, resize)
+    img = rgba2rgb(img)
     img_arr = img2tensor(img)
     return img_arr
 

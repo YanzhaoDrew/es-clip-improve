@@ -1,7 +1,7 @@
 import random
 import tkinter as tk
 from PIL import Image, ImageTk, ImageChops
-from utils import load_target, save_as_gif, img2tensor
+from utils import load_target, rgba2rgb, save_as_gif, img2tensor
 from tqdm import *
 import torch
 import clip
@@ -11,8 +11,9 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 
 device_index = 'cuda:0'
-INIT_POPULATION = 256
+INIT_POPULATION = 50
 INIT_BATCH_SIZE = 128
+ITERATION = 1000
 
 # Constants
 ACTUAL_SHAPES = 50
@@ -26,7 +27,7 @@ MAX_COLOR_SHAPES = 4
 
 # Global variables (these need to be initialized properly)
 FITNESS_TEST = 0
-FITNESS_BEST = [float(0) for _ in range(INIT_POPULATION)]
+FITNESS_BEST = 0.
 FITNESS_BEST_NORMALIZED = 0
 FITNESS_BEST_RECORD = []
 CHANGED_SHAPE_INDEX = 0
@@ -37,7 +38,7 @@ ELAPSED_TIME = 0
 LAST_COUNTER = 0
 
 # INIT
-INIT_TYPE = 'color'
+INIT_TYPE = 'random'
 INIT_A = 0
 INIT_G = 0
 INIT_B = 0
@@ -56,8 +57,8 @@ from PIL import Image, ImageDraw
 
 def drawDNA(dna, width, height):
     dna = dna.tolist()
-    image = Image.new('RGB', (width, height), color='white')
-    draw = ImageDraw.Draw(image)
+    image = Image.new('RGBA', (width, height), color='white')
+    draw = ImageDraw.Draw(image, 'RGBA')
 
     for i in range(len(dna)):
         drawShape(draw, dna[i][:MAX_POINTS*2], dna[i][MAX_POINTS*2:])
@@ -100,7 +101,7 @@ def compute_fitness(dna):
     # 根据DNA绘制图像
     dna_images = torch.zeros(dna.size(0), 3, IHEIGHT, IWIDTH)
     for b in range(dna.size(0)):
-        dna_images[b, :, :, :] = img2tensor(drawDNA(dna[b], IHEIGHT, IWIDTH))
+        dna_images[b, :, :, :] = img2tensor(rgba2rgb( drawDNA(dna[b], IHEIGHT, IWIDTH)))
 
     n_solution = dna.size(0)
     with torch.no_grad():
@@ -132,18 +133,18 @@ def compute_fitness(dna):
 
 def init_dna(dna):
     # dna.shape = (INIT_POPULATION, MAX_SHAPES, MAX_POINTS * 2 + 4)
-    for p in range(INIT_POPULATION):
+    for p in range(dna.size(0)):
         for i in range(MAX_SHAPES):
             dna[p, i, :MAX_POINTS] = torch.randint(0, IWIDTH, (MAX_POINTS,), device=device)
             dna[p, i, MAX_POINTS:] = torch.randint(0, IHEIGHT, (MAX_POINTS,), device=device)
 
     # Initialize color tensor
     if INIT_TYPE == "random":
-        color = torch.randint(0, 256, (INIT_POPULATION, MAX_SHAPES, 4), device=device).float()
-        color[:, :, 3] = 0.001
+        color = torch.randint(0, 256, (dna.size(0), MAX_SHAPES, 4), device=device).float()
+        # color[:, :, 3] = 0.001
     else:
         color = torch.tensor([INIT_R, INIT_G, INIT_B, INIT_A], dtype=torch.float32, device=device)
-        color = color.repeat(INIT_POPULATION, MAX_SHAPES, 1)
+        color = color.repeat(dna.size(0), MAX_SHAPES, 1)
 
     # Concatenate color tensor to dna tensor
     dna = torch.cat((dna, color), dim=2)
@@ -151,8 +152,10 @@ def init_dna(dna):
 
 def pass_gene_mutation(dna_from, dna_to, gene_index):
     # dna_from, dna_to. shape(INIT_POPULATION, MAX_SHAPES, MAX_POINTS * 2 + 4)
-    dna_to[:, gene_index, MAX_POINTS * 2:] = dna_from[:, gene_index, MAX_POINTS * 2:]
-    dna_to[:, gene_index, :MAX_POINTS * 2] = dna_from[:, gene_index, :MAX_POINTS * 2]
+    # dna_to[:, gene_index, MAX_POINTS * 2:] = dna_from[:, gene_index, MAX_POINTS * 2:]
+    # dna_to[:, gene_index, :MAX_POINTS * 2] = dna_from[:, gene_index, :MAX_POINTS * 2]
+    dna_to[ gene_index] = dna_from[ gene_index]
+
 
 def mutate_medium(dna_out):
     # dna_out shape(INIT_POPULATION, MAX_SHAPES, MAX_POINTS * 2 + 4)
@@ -188,21 +191,22 @@ def evolve():
         # drawDNA(DNA_TEST, IHEIGHT, IWIDTH)
 
         FITNESS_TEST = compute_fitness(dna[0])
+        max_FITNESS_TEST_index = FITNESS_TEST.index(max(FITNESS_TEST))
 
-        if max(FITNESS_TEST) > min(FITNESS_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)]):
-            pass_gene_mutation(dna[0], DNA_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)], CHANGED_SHAPE_INDEX)
-            indices = torch.where(torch.tensor(FITNESS_TEST) > torch.tensor(FITNESS_BEST[prior_dna_size:prior_dna_size + dna[0].size(0)]))
+        if FITNESS_TEST[max_FITNESS_TEST_index] > FITNESS_BEST:
+            pass_gene_mutation(dna[0][max_FITNESS_TEST_index], DNA_BEST[0], CHANGED_SHAPE_INDEX)
+            # indices = torch.where(torch.tensor(FITNESS_TEST) > torch.tensor(FITNESS_BEST))
             # 更新满足条件的 DNA_BEST
-            DNA_BEST[prior_dna_size + indices[0]] = dna[0][indices[0]]
-            FITNESS_BEST[prior_dna_size:prior_dna_size + dna[0].size(0)] = FITNESS_TEST
-            FITNESS_BEST_NORMALIZED = 100 * max(FITNESS_BEST)
+            # DNA_BEST[prior_dna_size + indices[0]] = dna[0][indices[0]]
+            FITNESS_BEST = FITNESS_TEST[max_FITNESS_TEST_index]
+            FITNESS_BEST_NORMALIZED = 100 * FITNESS_BEST
             # print(FITNESS_BEST)
             # EL_FITNESS.config(text=f"{FITNESS_BEST_NORMALIZED:.2f}%")
             COUNTER_BENEFIT += 1
             # EL_STEP_BENEFIT.config(text=str(COUNTER_BENEFIT))
-            images.append(drawDNA(DNA_BEST[FITNESS_BEST.index(max(FITNESS_BEST))], IHEIGHT, IWIDTH))
+            images.append(drawDNA(DNA_BEST[0], IHEIGHT, IWIDTH))
         else:
-            pass_gene_mutation(dna[0], DNA_BEST[prior_dna_size:prior_dna_size+dna[0].size(0)], CHANGED_SHAPE_INDEX)
+            pass_gene_mutation(DNA_BEST[0], dna[0][max_FITNESS_TEST_index], CHANGED_SHAPE_INDEX)
 
         COUNTER_TOTAL += 1
         DNA_TEST[prior_dna_size:prior_dna_size + dna[0].size(0)] = dna[0]
@@ -238,15 +242,16 @@ if __name__ == "__main__":
     }
     global DNA_TEST, DNA_BEST
     DNA_TEST = torch.zeros((INIT_POPULATION, ACTUAL_SHAPES, MAX_POINTS * 2), dtype=torch.float32, device=device)
-    DNA_BEST = torch.zeros((INIT_POPULATION, ACTUAL_SHAPES, MAX_POINTS * 2), dtype=torch.float32, device=device)
+    DNA_BEST = torch.zeros((1, ACTUAL_SHAPES, MAX_POINTS * 2), dtype=torch.float32, device=device)
 
     DNA_TEST = init_dna(DNA_TEST.clone())
     DNA_BEST = init_dna(DNA_BEST.clone())
     # print(DNA_TEST)
-    for i in tqdm(range(10)):
+    for i in tqdm(range(ITERATION)):
         evolve()
-    save_as_gif('test_as_clip.gif', images, fps=8)
+    save_as_gif(f'test_as_clip-text{text}-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.gif', images, fps=8)
     Image._show(images[-1])
+    images[-1].save(f"test_as_clip-text{text}-ITER{ITERATION}-POP{INIT_POPULATION}-MAXPOINT{MAX_POINTS}-BATCH{INIT_BATCH_SIZE}.gif")
 
     plt.figure(figsize=(10, 6))
     plt.plot(range(len(FITNESS_BEST_RECORD)), FITNESS_BEST_RECORD, marker='o')
